@@ -1,4 +1,4 @@
-package sessionman
+package guardian
 
 import (
 	"crypto/md5"
@@ -73,7 +73,7 @@ type sessionManager struct {
 	RenewalTimeout time.Duration
 }
 
-type SessionManagerParams struct {
+type SessionManagerConstructorParams struct {
 	Store          Store
 	Infologger     log.Logger    // set as private; public use will come later
 	ErrLogger      log.Logger    // set as private; public use will come later
@@ -143,6 +143,8 @@ func New(namespace string) (sessionManager, error) {
 		loggerMiddleware(next http.Handler) http.HandleFunc
 ** */
 
+// generate a new session id using the session managers ID and the
+// timestamp at which the function was called
 func (s *sessionManager) newSessionID() string {
 	hashValue := fmt.Sprintf("%s+%d", string(s.id), time.Now().UnixNano())
 	binaryCtx := md5.Sum([]byte(hashValue))
@@ -177,10 +179,11 @@ func (s *sessionManager) CreateSession() Session {
 func (s *sessionManager) watchTimeouts(session *Session) {
 	if time.Now().After(session.idleTime) || time.Now().After(session.lifetime) {
 		s.invalidateSession(session)
+		return
 	} else if time.Now().After(session.renewalTime) {
 		s.renewSession(session)
+		session.idleTime = time.Now().Add(s.IdleTimeout)
 	}
-
 }
 
 // delete session from store and set cookie to a time value in the past

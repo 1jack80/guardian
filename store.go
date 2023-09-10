@@ -52,7 +52,7 @@ func (s *Store) Save(session *Session) error {
 	if err != nil {
 		return err
 	}
-	err = s.storage.put(session.ID, binaryData)
+	err = s.storage.put(session.id, binaryData)
 	return err
 }
 

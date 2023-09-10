@@ -1,4 +1,4 @@
-package sessionman
+package guardian
 
 type container interface {
 

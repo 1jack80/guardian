@@ -21,10 +21,10 @@ type container interface {
 */
 
 type Store struct {
-	codec   Codec
+	codec   codec
 	storage container
 }
-type Codec interface {
+type codec interface {
 	encode(data *Session) ([]byte, error)
 	decode(data []byte) (*Session, error)
 }
@@ -52,7 +52,7 @@ func (s *Store) Save(session *Session) error {
 	if err != nil {
 		return err
 	}
-	err = s.storage.put(session.id, binaryData)
+	err = s.storage.put(session.ID, binaryData)
 	return err
 }
 

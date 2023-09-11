@@ -1,6 +1,7 @@
 package guardian
 
 import (
+	"context"
 	"crypto/md5"
 	"encoding/hex"
 	"errors"
@@ -18,11 +19,11 @@ import (
 *
 ******/
 type Session struct {
-	id          string
+	ID          string
 	Data        map[string]interface{} // does not map to a strict type because of user preferences
-	idleTime    time.Time
-	lifetime    time.Time
-	renewalTime time.Time
+	IdleTime    time.Time
+	LifeTime    time.Time
+	RenewalTime time.Time
 	Cookie      http.Cookie
 }
 
@@ -63,9 +64,9 @@ func newNameSpaceManager() namespaceManager {
 var managerIDs = newNameSpaceManager()
 
 type sessionManager struct {
-	Store          Store
+	Store          *Store
 	id             string
-	contextKey     contextKey    // use an md5 hash of the id coupled with the creation time as the context key
+	ContextKey     contextKey    // use an md5 hash of the id coupled with the creation time as the context key
 	infologger     log.Logger    // set as private; public use will come later
 	errLogger      log.Logger    // set as private; public use will come later
 	IdleTimeout    time.Duration //
@@ -74,7 +75,7 @@ type sessionManager struct {
 }
 
 type SessionManagerConstructorParams struct {
-	Store          Store
+	Store          *Store
 	Infologger     log.Logger    // set as private; public use will come later
 	ErrLogger      log.Logger    // set as private; public use will come later
 	IdleTimeout    time.Duration //
@@ -86,6 +87,10 @@ type SessionManagerConstructorParams struct {
 // TODO: Find a way to pass optional second argument to the New function
 // this second parameter will be of type SessionManagerParams and will define
 // other parameters of a session manager at creation time
+
+// create a new session manager using default parameters
+// the namespace given is to ensure things like the context key
+// and session ids are well scoped to session manager instance.
 func New(namespace string) (sessionManager, error) {
 	id := ""
 	if _, ok := managerIDs.getInstance()[namespace]; ok {
@@ -100,9 +105,9 @@ func New(namespace string) (sessionManager, error) {
 	key := contextKey(hex.EncodeToString(binaryCtx[:]))
 
 	return sessionManager{
-		Store:          Store{},
+		Store:          &Store{},
 		id:             id,
-		contextKey:     key,
+		ContextKey:     key,
 		infologger:     *log.New(os.Stdout, "SessionInfo:\t", log.LUTC),
 		errLogger:      *log.New(os.Stdout, "SessionErr:\t", log.LUTC),
 		IdleTimeout:    15 * time.Minute,
@@ -156,11 +161,11 @@ func (s *sessionManager) newSessionID() string {
 func (s *sessionManager) CreateSession() Session {
 	id := s.newSessionID()
 	return Session{
-		id:          id,
+		ID:          id,
 		Data:        map[string]interface{}{},
-		idleTime:    time.Now().Add(s.IdleTimeout),
-		lifetime:    time.Now().Add(s.Lifetime),
-		renewalTime: time.Now().Add(s.RenewalTimeout),
+		IdleTime:    time.Now().Add(s.IdleTimeout),
+		LifeTime:    time.Now().Add(s.Lifetime),
+		RenewalTime: time.Now().Add(s.RenewalTimeout),
 		Cookie: http.Cookie{
 			Name:     fmt.Sprintf("session_%s", s.id),
 			Value:    id,
@@ -176,20 +181,20 @@ func (s *sessionManager) CreateSession() Session {
 // the sessionID is renewed whenever the renewal time is up and the idleTime or lifetime have not elapsed yet
 // for every request, the idletime if not elapsed yet is reset; The idle time however is reset only if it has elapsed
 // the after the idletime and lifetimes have elapsed, the session is invalidated and the session cookie is removed.
-func (s *sessionManager) watchTimeouts(session *Session) {
-	if time.Now().After(session.idleTime) || time.Now().After(session.lifetime) {
-		s.invalidateSession(session)
+func (s *sessionManager) WatchTimeouts(session *Session) {
+	if time.Now().After(session.IdleTime) || time.Now().After(session.LifeTime) {
+		s.InvalidateSession(session)
 		return
-	} else if time.Now().After(session.renewalTime) {
-		s.renewSession(session)
-		session.idleTime = time.Now().Add(s.IdleTimeout)
+	} else if time.Now().After(session.RenewalTime) {
+		s.RenewSession(session)
 	}
+	session.IdleTime = time.Now().Add(s.IdleTimeout)
 }
 
 // delete session from store and set cookie to a time value in the past
 // set session cookie to a time in the past
-func (s *sessionManager) invalidateSession(session *Session) {
-	if err := s.Store.Delete(session.id); err != nil {
+func (s *sessionManager) InvalidateSession(session *Session) {
+	if err := s.Store.Delete(session.ID); err != nil {
 		s.errLogger.Println(err.Error())
 	}
 	session.Cookie.Name = ""
@@ -199,12 +204,20 @@ func (s *sessionManager) invalidateSession(session *Session) {
 
 // set a new session id for both the session and the session cookie
 // and ensure that the store is also updated with the changes
-func (s *sessionManager) renewSession(session *Session) {
+func (s *sessionManager) RenewSession(session *Session) {
 	newId := s.newSessionID()
-	oldId := session.id
+	oldId := session.ID
 
-	session.id = newId
+	session.ID = newId
 	session.Cookie.Value = newId
 
 	s.Store.Update(oldId, session)
+}
+
+// given a request and a session, ensure that the request context contains the session
+// using the context key of the session manager as the key.
+// Also ensure that the values in the already existing context are not affected
+func (s *sessionManager) PopulateRequestContext(r *http.Request, session Session) {
+	ctx := context.WithValue(r.Context(), s.ContextKey, session)
+	r = r.WithContext(ctx)
 }

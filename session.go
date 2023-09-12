@@ -223,6 +223,36 @@ func (s *sessionManager) RenewSession(session *Session) {
 // using the context key of the session manager as the key.
 // Also ensure that the values in the already existing context are not affected
 func (s *sessionManager) PopulateRequestContext(r *http.Request, session Session) *http.Request {
-	ctx := context.WithValue(r.Context(), s.ContextKey, session)
+	ctx := context.WithValue(r.Context(), s.contextKey, session)
 	return r.WithContext(ctx)
+}
+
+func (s *sessionManager) SessionMiddleware(next http.HandlerFunc) http.HandlerFunc {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		/*
+			what we do in the session middleware:
+			- check the request context if there is a session cookie under the session manager's cookieName
+			- validate the cookie if there exists a corresponding session in the store
+			- watch timeouts of the session
+			- populate the request context with the session data
+
+			// when the response is about to be sent
+			- log request context and the response cookie
+		*/
+		w.Header().Add("Vary", "Cookie")
+
+		cookie, err := r.Cookie(s.cookieName)
+		if err != nil {
+			s.errLogger.Printf("Session manager %s error: %s", s.id, err.Error())
+		}
+		session, err := s.Store.Get(cookie.Value)
+		if err != nil {
+			s.errLogger.Printf("Session manager %s error: %s", s.id, err.Error())
+		}
+		s.WatchTimeouts(session)
+		s.PopulateRequestContext(r, *session)
+
+		next(w, r)
+
+	})
 }

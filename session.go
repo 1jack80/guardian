@@ -227,7 +227,7 @@ func (s *SessionManager) PopulateRequestContext(r *http.Request, session Session
 	return r.WithContext(ctx)
 }
 
-func (s *SessionManager) SessionMiddleware(next http.HandlerFunc) http.HandlerFunc {
+func (s *SessionManager) SessionMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		/*
 			what we do in the session middleware:
@@ -252,7 +252,7 @@ func (s *SessionManager) SessionMiddleware(next http.HandlerFunc) http.HandlerFu
 		s.WatchTimeouts(session)
 		s.PopulateRequestContext(r, *session)
 
-		next(w, r)
+		next.ServeHTTP(w, r)
 
 	})
 }

@@ -8,14 +8,14 @@ package guardian
 type Storer interface {
 	// retrieve the sesison data from the underlying container
 	// and decode it before returning it to the calling function
-	get(sessionID string) (*Session, error)
+	Get(sessionID string) (*Session, error)
 
 	// save an encoded form of the given session data into
 	// the underlying container
-	save(session *Session) error
+	Save(session *Session) error
 
 	// delete the session identified by the given sessionID
-	delete(sessionID string) error
+	Delete(sessionID string) error
 
 	// update parts of the session that identifes with the given sessionID:
 	// the new session is used to replace the old session hance,

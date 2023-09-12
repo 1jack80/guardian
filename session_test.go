@@ -316,8 +316,9 @@ func TestSessionManager_PopulateRequestContext(t *testing.T) {
 		t.Fatalf("unable to create session manager: err -- %s", manager_err.Error())
 	}
 
+	type key string
 	ctx := context.Background()
-	ctx = context.WithValue(ctx, "foo", "bar")
+	ctx = context.WithValue(ctx, key("foo"), "bar")
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "github.com", nil)
 	if err != nil {
 		t.Fatalf("unable to create request: %v", err)

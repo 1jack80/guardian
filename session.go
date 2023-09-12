@@ -84,10 +84,6 @@ type SessionManagerConstructorParams struct {
 	ContextKey     contextKey
 }
 
-// TODO: Find a way to pass optional second argument to the New function
-// this second parameter will be of type SessionManagerParams and will define
-// other parameters of a session manager at creation time
-
 // create a new session manager using default parameters
 // the namespace given is to ensure things like the context key
 // and session ids are well scoped to session manager instance.

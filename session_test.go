@@ -1,16 +1,70 @@
 package guardian_test
 
 import (
+	"context"
+	"errors"
+	"net/http"
 	"reflect"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/1jack80/guardian"
 )
 
-var (
-	manager, manager_err = guardian.New("test_manager")
-)
+// MockStorage is a mock implementation of the Storer interface for testing.
+type MockStorage struct {
+	data map[string]*guardian.Session
+	mu   sync.RWMutex
+}
+
+// NewMockStorage creates a new instance of MockStorage.
+func NewMockStorage() *MockStorage {
+	return &MockStorage{
+		data: make(map[string]*guardian.Session),
+	}
+}
+
+// get retrieves session data from the mock storage.
+func (s *MockStorage) Get(sessionID string) (*guardian.Session, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	session, ok := s.data[sessionID]
+	if !ok {
+		return nil, errors.New("Session not found")
+	}
+	return session, nil
+}
+
+// save saves a session into the mock storage.
+func (s *MockStorage) Save(session *guardian.Session) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.data[session.ID] = session
+	return nil
+}
+
+// delete deletes session data from the mock storage.
+func (s *MockStorage) Delete(sessionID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	delete(s.data, sessionID)
+	return nil
+}
+
+// Update updates session data in the mock storage.
+func (s *MockStorage) Update(sessionID string, newSession *guardian.Session) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.data[sessionID] = newSession
+	return nil
+}
+
+var manager, manager_err = guardian.NewSessionManager("test_manager", NewMockStorage())
 
 // TestSessionManager_CreateSession tests the creation of a new session and validates its attributes.
 func TestSessionManager_CreateSession(t *testing.T) {
@@ -41,6 +95,8 @@ func TestSessionManager_CreateSession(t *testing.T) {
 // renewalTime, idleTime and lifetime are not up yet -- only the idleTime should be reset
 func TestNoTimeExpired(t *testing.T) {
 
+	manager.Store = NewMockStorage()
+
 	if manager_err != nil {
 		t.Fatalf("unable to create session manager: err -- %s", manager_err.Error())
 	}
@@ -61,7 +117,6 @@ func TestNoTimeExpired(t *testing.T) {
 
 }
 
-/*
 // renewalTime is up but idleTime and lifeTime not up yet -- reset sessionID, idleTime and renewalTime
 func TestRenewalTimeExpired(t *testing.T) {
 
@@ -113,7 +168,25 @@ func TestRenewalAndIdleTimeExpired(t *testing.T) {
 
 	session := manager.CreateSession()
 
+	// renewalTime, idleTime, lifeTime := session.RenewalTime, session.IdleTime, session.LifeTime
+	sessionID := session.ID
+	cookieExpiryTime := session.Cookie.Expires
+	time.Sleep(manager.IdleTimeout)
+
 	manager.WatchTimeouts(&session)
+
+	if time.Now().After(session.LifeTime) {
+		t.Error("session lifetime has also expired; it should not have")
+	}
+	if session.Cookie.Value != "" {
+		t.Fatalf("session cookie value should be empty \n expected: \n got: \t %v", session.Cookie.Value)
+	}
+	if time.Now().Before(session.Cookie.Expires) {
+		t.Fatalf("session cookie should have expired \n expected: %v \n got: \t %v", cookieExpiryTime, session.Cookie.Expires)
+	}
+	if _, err := manager.Store.Get(sessionID); err == nil {
+		t.Fatalf("session was not deleted from the store")
+	}
 
 }
 
@@ -125,12 +198,29 @@ func TestAllTimesExpired(t *testing.T) {
 	}
 
 	manager.RenewalTimeout = time.Second * 1
-	manager.IdleTimeout = time.Second * 2
-	manager.Lifetime = time.Second * 5
+	manager.IdleTimeout = time.Second * 1
+	manager.Lifetime = time.Second * 2
 
 	session := manager.CreateSession()
 
+	sessionID := session.ID
+	cookieExpiryTime := session.Cookie.Expires
+	time.Sleep(manager.Lifetime)
+
 	manager.WatchTimeouts(&session)
+
+	if time.Now().Before(session.IdleTime) && time.Now().Before(session.LifeTime) && time.Now().After(session.RenewalTime) {
+		t.Error("some or all session times have not expired yet")
+	}
+	if session.Cookie.Value != "" {
+		t.Fatalf("session cookie value should be empty \n expected: \n got: \t %v", session.Cookie.Value)
+	}
+	if time.Now().Before(session.Cookie.Expires) {
+		t.Fatalf("session cookie should have expired \n expected: %v \n got: \t %v", cookieExpiryTime, session.Cookie.Expires)
+	}
+	if _, err := manager.Store.Get(sessionID); err == nil {
+		t.Fatalf("session was not deleted from the store")
+	}
 
 }
 
@@ -143,11 +233,33 @@ func TestRenewalAndLifeTimeExpired(t *testing.T) {
 
 	manager.RenewalTimeout = time.Second * 1
 	manager.IdleTimeout = time.Second * 2
-	manager.Lifetime = time.Second * 5
+	manager.Lifetime = time.Second * 3
 
 	session := manager.CreateSession()
 
 	manager.WatchTimeouts(&session)
+
+	sessionID := session.ID
+	cookieExpiryTime := session.Cookie.Expires
+
+	manager.WatchTimeouts(&session)
+
+	time.Sleep(manager.IdleTimeout)
+	session.RenewalTime = time.Now().Add(manager.RenewalTimeout)
+	manager.WatchTimeouts(&session)
+
+	if time.Now().After(session.IdleTime) && time.Now().Before(session.LifeTime) && time.Now().After(session.RenewalTime) {
+		t.Error("renewal time, and or lifetime has not expired yet")
+	}
+	if session.Cookie.Value != "" {
+		t.Fatalf("session cookie value should be empty \n expected: \n got: \t %v", session.Cookie.Value)
+	}
+	if time.Now().Before(session.Cookie.Expires) {
+		t.Fatalf("session cookie should have expired \n expected: %v \n got: \t %v", cookieExpiryTime, session.Cookie.Expires)
+	}
+	if _, err := manager.Store.Get(sessionID); err == nil {
+		t.Fatalf("session was not deleted from the store")
+	}
 
 }
 
@@ -159,42 +271,66 @@ func TestLifetimeExpired(t *testing.T) {
 	}
 
 	manager.RenewalTimeout = time.Second * 1
-	manager.IdleTimeout = time.Second * 2
-	manager.Lifetime = time.Second * 5
+	manager.IdleTimeout = time.Second * 1
+	manager.Lifetime = time.Second * 2
 
 	session := manager.CreateSession()
 
 	manager.WatchTimeouts(&session)
 
+	sessionID := session.ID
+	cookieExpiryTime := session.Cookie.Expires
+
+	// by this time the lifetime should be expired
+	// while the idletime and renewal time should have been reset
+	manager.WatchTimeouts(&session)
+	time.Sleep(manager.RenewalTimeout)
+	manager.WatchTimeouts(&session)
+	time.Sleep(manager.RenewalTimeout)
+	manager.WatchTimeouts(&session)
+
+	if time.Now().After(session.LifeTime) && time.Now().Before(session.IdleTime) && time.Now().After(session.RenewalTime) {
+		t.Fatal("renewal time, and or idle time has not expired yet")
+	}
+	if session.Cookie.Value != "" {
+		t.Fatalf("session cookie value should be empty \n expected: \n got: \t %v", session.Cookie.Value)
+	}
+	if time.Now().Before(session.Cookie.Expires) {
+		t.Fatalf("session cookie should have expired \n expected: %v \n got: \t %v", cookieExpiryTime, session.Cookie.Expires)
+	}
+	if _, err := manager.Store.Get(sessionID); err == nil {
+		t.Fatalf("session was not deleted from the store")
+	}
 }
 
 // TestSessionManager_PopulateRequestContext ensures that session data is correctly populated in the request context.
 func TestSessionManager_PopulateRequestContext(t *testing.T) {
-	// Test logic here
+
+	if manager_err != nil {
+		t.Fatalf("unable to create session manager: err -- %s", manager_err.Error())
+	}
+
+	ctx := context.Background()
+	ctx = context.WithValue(ctx, "foo", "bar")
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "github.com", nil)
+	if err != nil {
+		t.Fatalf("unable to create request: %v", err)
+	}
+	session := manager.CreateSession()
+
+	req = manager.PopulateRequestContext(req, session)
+
+	if req.Context().Value("foo") != "bar" {
+		t.Fatalf("existing values in the context were altered")
+	}
+	if req.Context().Value(manager.ContextKey) == nil {
+		t.Fatal("session was not saved in context under context key")
+	}
 }
 
+/*
 // TestSessionManager_InvalidateSession tests the invalidation of a session and verifies that the session data is removed from the store and the session cookie is expired.
 func TestSessionManager_InvalidateSession(t *testing.T) {
-	// Test logic here
-}
-
-// TestStore_Get tests the retrieval of session data from the store.
-func TestStore_Get(t *testing.T) {
-	// Test logic here
-}
-
-// TestStore_Save tests saving session data to the store and verifies that it's stored correctly.
-func TestStore_Save(t *testing.T) {
-	// Test logic here
-}
-
-// TestStore_Delete tests deleting session data from the store.
-func TestStore_Delete(t *testing.T) {
-	// Test logic here
-}
-
-// TestStore_Update tests updating session data in the store.
-func TestStore_Update(t *testing.T) {
 	// Test logic here
 }
 

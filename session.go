@@ -83,16 +83,6 @@ type sessionManager struct {
 	RenewalTimeout time.Duration
 }
 
-type SessionManagerConstructorParams struct {
-	Store          Storer
-	Infologger     log.Logger    // set as private; public use will come later
-	ErrLogger      log.Logger    // set as private; public use will come later
-	IdleTimeout    time.Duration //
-	Lifetime       time.Duration
-	RenewalTimeout time.Duration
-	ContextKey     contextKey
-}
-
 // create a new session manager using default parameters
 // the namespace given is to ensure things like the context key
 // and session ids are well scoped to session manager instance.

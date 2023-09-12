@@ -78,7 +78,7 @@ func TestSessionManager_CreateSession(t *testing.T) {
 		t.Fatalf("unable to create session manager: err -- %s", manager_err.Error())
 	}
 
-	if manager.ContextKey == "" {
+	if manager.ContextKey() == "" {
 		t.Fatal("session manager context key is empty")
 	}
 	if manager.IdleTimeout != time.Minute*15 {
@@ -327,10 +327,10 @@ func TestSessionManager_PopulateRequestContext(t *testing.T) {
 
 	req = manager.PopulateRequestContext(req, session)
 
-	if req.Context().Value("foo") != "bar" {
+	if req.Context().Value(key("foo")) != "bar" {
 		t.Fatalf("existing values in the context were altered")
 	}
-	if req.Context().Value(manager.ContextKey) == nil {
+	if req.Context().Value(manager.ContextKey()) == nil {
 		t.Fatal("session was not saved in context under context key")
 	}
 }

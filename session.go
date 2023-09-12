@@ -76,8 +76,8 @@ type SessionManager struct {
 	id             string
 	cookieName     string
 	contextKey     contextKey    // use an md5 hash of the id coupled with the creation time as the context key
-	infologger     log.Logger    // set as private; public use will come later
-	errLogger      log.Logger    // set as private; public use will come later
+	Infologger     log.Logger    // set as private; public use will come later
+	ErrLogger      log.Logger    // set as private; public use will come later
 	IdleTimeout    time.Duration //
 	Lifetime       time.Duration
 	RenewalTimeout time.Duration
@@ -104,8 +104,8 @@ func NewSessionManager(namespace string, store Storer) (SessionManager, error) {
 		id:             id,
 		cookieName:     fmt.Sprintf("%s_session", id),
 		contextKey:     key,
-		infologger:     *log.New(os.Stdout, "SessionInfo:\t", log.LUTC),
-		errLogger:      *log.New(os.Stdout, "SessionErr:\t", log.LUTC),
+		Infologger:     *log.New(os.Stdout, "SessionInfo:\t", log.LUTC),
+		ErrLogger:      *log.New(os.Stdout, "SessionErr:\t", log.LUTC),
 		IdleTimeout:    15 * time.Minute,
 		Lifetime:       2 * time.Hour,
 		RenewalTimeout: time.Minute,
@@ -198,7 +198,7 @@ func (s *SessionManager) WatchTimeouts(session *Session) {
 // set session cookie to a time in the past
 func (s *SessionManager) InvalidateSession(session *Session) {
 	if err := s.Store.Delete(session.ID); err != nil {
-		s.errLogger.Println(err.Error())
+		s.ErrLogger.Println(err.Error())
 	}
 	session.Status = Invalid
 	session.Cookie.Name = ""
@@ -243,11 +243,11 @@ func (s *SessionManager) SessionMiddleware(next http.HandlerFunc) http.HandlerFu
 
 		cookie, err := r.Cookie(s.cookieName)
 		if err != nil {
-			s.errLogger.Printf("Session manager %s error: %s", s.id, err.Error())
+			s.ErrLogger.Printf("Session manager %s error: %s", s.id, err.Error())
 		}
 		session, err := s.Store.Get(cookie.Value)
 		if err != nil {
-			s.errLogger.Printf("Session manager %s error: %s", s.id, err.Error())
+			s.ErrLogger.Printf("Session manager %s error: %s", s.id, err.Error())
 		}
 		s.WatchTimeouts(session)
 		s.PopulateRequestContext(r, *session)

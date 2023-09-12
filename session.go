@@ -187,6 +187,7 @@ func (s *sessionManager) WatchTimeouts(session *Session) {
 		return
 	} else if time.Now().After(session.RenewalTime) {
 		s.RenewSession(session)
+		session.RenewalTime = time.Now().Add(s.RenewalTimeout)
 	}
 	session.IdleTime = time.Now().Add(s.IdleTimeout)
 }

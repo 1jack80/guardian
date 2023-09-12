@@ -104,8 +104,8 @@ func NewSessionManager(namespace string, store Storer) (SessionManager, error) {
 		id:             id,
 		cookieName:     fmt.Sprintf("%s_session", id),
 		contextKey:     key,
-		Infologger:     *log.New(os.Stdout, "SessionInfo:\t", log.LUTC),
-		ErrLogger:      *log.New(os.Stdout, "SessionErr:\t", log.LUTC),
+		Infologger:     *log.New(os.Stdout, "SessionInfo:\t", log.Lshortfile),
+		ErrLogger:      *log.New(os.Stdout, "SessionErr:\t", log.Lshortfile),
 		IdleTimeout:    15 * time.Minute,
 		Lifetime:       2 * time.Hour,
 		RenewalTimeout: time.Minute,
@@ -183,20 +183,21 @@ func (s *SessionManager) CreateSession() Session {
 // the sessionID is renewed whenever the renewal time is up and the idleTime or lifetime have not elapsed yet
 // for every request, the idletime if not elapsed yet is reset; The idle time however is reset only if it has elapsed
 // the after the idletime and lifetimes have elapsed, the session is invalidated and the session cookie is removed.
-func (s *SessionManager) WatchTimeouts(session *Session) {
+func (s *SessionManager) WatchTimeouts(session Session) Session {
 	if time.Now().After(session.IdleTime) || time.Now().After(session.LifeTime) {
-		s.InvalidateSession(session)
-		return
+		session = s.InvalidateSession(session)
+		return session
 	} else if time.Now().After(session.RenewalTime) {
-		s.RenewSession(session)
+		session = s.RenewSession(session)
 		session.RenewalTime = time.Now().Add(s.RenewalTimeout)
 	}
 	session.IdleTime = time.Now().Add(s.IdleTimeout)
+	return session
 }
 
 // delete session from store and set cookie to a time value in the past
 // set session cookie to a time in the past
-func (s *SessionManager) InvalidateSession(session *Session) {
+func (s *SessionManager) InvalidateSession(session Session) Session {
 	if err := s.Store.Delete(session.ID); err != nil {
 		s.ErrLogger.Println(err.Error())
 	}
@@ -204,11 +205,12 @@ func (s *SessionManager) InvalidateSession(session *Session) {
 	session.Cookie.Name = ""
 	session.Cookie.Value = ""
 	session.Cookie.Expires = time.Now().Add(-s.IdleTimeout)
+	return session
 }
 
 // set a new session id for both the session and the session cookie value
 // and ensure that the store is also updated with the changes
-func (s *SessionManager) RenewSession(session *Session) {
+func (s *SessionManager) RenewSession(session Session) Session {
 	newId := s.newSessionID()
 	oldId := session.ID
 
@@ -217,6 +219,7 @@ func (s *SessionManager) RenewSession(session *Session) {
 	session.Status = Valid
 
 	s.Store.Update(oldId, session)
+	return session
 }
 
 // given a request and a session, ensure that the request context contains the session
@@ -227,30 +230,36 @@ func (s *SessionManager) PopulateRequestContext(r *http.Request, session Session
 	return r.WithContext(ctx)
 }
 
+/*
+what we do in the session middleware:
+- check the request context if there is a session cookie under the session manager's cookieName
+- validate the cookie if there exists a corresponding session in the store
+- watch timeouts of the session
+- populate the request context with the session data
+
+// when the response is about to be sent
+- log request context and the response cookie
+*/
 func (s *SessionManager) SessionMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		/*
-			what we do in the session middleware:
-			- check the request context if there is a session cookie under the session manager's cookieName
-			- validate the cookie if there exists a corresponding session in the store
-			- watch timeouts of the session
-			- populate the request context with the session data
-
-			// when the response is about to be sent
-			- log request context and the response cookie
-		*/
 		w.Header().Add("Vary", "Cookie")
+
+		var session Session
 
 		cookie, err := r.Cookie(s.cookieName)
 		if err != nil {
-			s.ErrLogger.Printf("Session manager %s error: %s", s.id, err.Error())
+			newSession := s.CreateSession()
+			session = newSession
+			http.SetCookie(w, &newSession.Cookie)
+			s.Store.Save(session)
+		} else {
+			session, err = s.Store.Get(cookie.Value)
+			if err != nil {
+				s.ErrLogger.Printf("Session manager %s error: %s", s.id, err.Error())
+			}
+			s.WatchTimeouts(session)
 		}
-		session, err := s.Store.Get(cookie.Value)
-		if err != nil {
-			s.ErrLogger.Printf("Session manager %s error: %s", s.id, err.Error())
-		}
-		s.WatchTimeouts(session)
-		s.PopulateRequestContext(r, *session)
+		s.PopulateRequestContext(r, session)
 
 		next.ServeHTTP(w, r)
 

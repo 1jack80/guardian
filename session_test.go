@@ -14,31 +14,31 @@ import (
 
 // MockStorage is a mock implementation of the Storer interface for testing.
 type MockStorage struct {
-	data map[string]*guardian.Session
+	data map[string]guardian.Session
 	mu   sync.RWMutex
 }
 
 // NewMockStorage creates a new instance of MockStorage.
 func NewMockStorage() *MockStorage {
 	return &MockStorage{
-		data: make(map[string]*guardian.Session),
+		data: make(map[string]guardian.Session),
 	}
 }
 
 // get retrieves session data from the mock storage.
-func (s *MockStorage) Get(sessionID string) (*guardian.Session, error) {
+func (s *MockStorage) Get(sessionID string) (guardian.Session, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
 	session, ok := s.data[sessionID]
 	if !ok {
-		return nil, errors.New("Session not found")
+		return guardian.Session{}, errors.New("Session not found")
 	}
 	return session, nil
 }
 
 // save saves a session into the mock storage.
-func (s *MockStorage) Save(session *guardian.Session) error {
+func (s *MockStorage) Save(session guardian.Session) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -56,7 +56,7 @@ func (s *MockStorage) Delete(sessionID string) error {
 }
 
 // Update updates session data in the mock storage.
-func (s *MockStorage) Update(sessionID string, newSession *guardian.Session) error {
+func (s *MockStorage) Update(sessionID string, newSession guardian.Session) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -114,7 +114,7 @@ func TestNoTimeExpired(t *testing.T) {
 	session := manager.CreateSession()
 	idleTime := session.IdleTime
 
-	manager.WatchTimeouts(&session)
+	session = manager.WatchTimeouts(session)
 
 	if session.IdleTime == idleTime {
 		t.Fatalf("Session idle time was not reset;\n Expecting: \t %v \n Got: \t\t %v",
@@ -140,7 +140,7 @@ func TestRenewalTimeExpired(t *testing.T) {
 	sessionID := session.ID
 	time.Sleep(manager.RenewalTimeout)
 
-	manager.WatchTimeouts(&session)
+	session = manager.WatchTimeouts(session)
 
 	if time.Now().Before(idleTime) && time.Now().Before(lifeTime) && time.Now().After(renewalTime) {
 		if session.RenewalTime.After(renewalTime) && session.IdleTime.After(idleTime) {
@@ -179,7 +179,7 @@ func TestRenewalAndIdleTimeExpired(t *testing.T) {
 	cookieExpiryTime := session.Cookie.Expires
 	time.Sleep(manager.IdleTimeout)
 
-	manager.WatchTimeouts(&session)
+	session = manager.WatchTimeouts(session)
 
 	if time.Now().After(session.LifeTime) {
 		t.Error("session lifetime has also expired; it should not have")
@@ -213,7 +213,7 @@ func TestAllTimesExpired(t *testing.T) {
 	cookieExpiryTime := session.Cookie.Expires
 	time.Sleep(manager.Lifetime)
 
-	manager.WatchTimeouts(&session)
+	session = manager.WatchTimeouts(session)
 
 	if time.Now().Before(session.IdleTime) && time.Now().Before(session.LifeTime) && time.Now().After(session.RenewalTime) {
 		t.Error("some or all session times have not expired yet")
@@ -243,16 +243,16 @@ func TestRenewalAndLifeTimeExpired(t *testing.T) {
 
 	session := manager.CreateSession()
 
-	manager.WatchTimeouts(&session)
+	session = manager.WatchTimeouts(session)
 
 	sessionID := session.ID
 	cookieExpiryTime := session.Cookie.Expires
 
-	manager.WatchTimeouts(&session)
+	session = manager.WatchTimeouts(session)
 
 	time.Sleep(manager.IdleTimeout)
 	session.RenewalTime = time.Now().Add(manager.RenewalTimeout)
-	manager.WatchTimeouts(&session)
+	session = manager.WatchTimeouts(session)
 
 	if time.Now().After(session.IdleTime) && time.Now().Before(session.LifeTime) && time.Now().After(session.RenewalTime) {
 		t.Error("renewal time, and or lifetime has not expired yet")
@@ -282,18 +282,18 @@ func TestLifetimeExpired(t *testing.T) {
 
 	session := manager.CreateSession()
 
-	manager.WatchTimeouts(&session)
+	session = manager.WatchTimeouts(session)
 
 	sessionID := session.ID
 	cookieExpiryTime := session.Cookie.Expires
 
 	// by this time the lifetime should be expired
 	// while the idletime and renewal time should have been reset
-	manager.WatchTimeouts(&session)
+	session = manager.WatchTimeouts(session)
 	time.Sleep(manager.RenewalTimeout)
-	manager.WatchTimeouts(&session)
+	session = manager.WatchTimeouts(session)
 	time.Sleep(manager.RenewalTimeout)
-	manager.WatchTimeouts(&session)
+	session = manager.WatchTimeouts(session)
 
 	if time.Now().After(session.LifeTime) && time.Now().Before(session.IdleTime) && time.Now().After(session.RenewalTime) {
 		t.Fatal("renewal time, and or idle time has not expired yet")
@@ -346,7 +346,7 @@ func TestSessionManager_InvalidateSession(t *testing.T) {
 	sessionID := session.ID
 	cookieExpiryTime := session.Cookie.Expires
 
-	manager.InvalidateSession(&session)
+	session = manager.InvalidateSession(session)
 
 	if session.Cookie.Value != "" {
 		t.Fatalf("session cookie value should be empty \n expected: \n got: \t %v", session.Cookie.Value)
@@ -372,7 +372,7 @@ func TestSessionManager_RenewSession(t *testing.T) {
 	sessionID := session.ID
 	cookie := session.Cookie
 
-	manager.RenewSession(&session)
+	session = manager.RenewSession(session)
 
 	if sessionID == session.ID {
 		t.Fatal("session id was not renewed")

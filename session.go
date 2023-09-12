@@ -218,7 +218,7 @@ func (s *sessionManager) RenewSession(session *Session) {
 // given a request and a session, ensure that the request context contains the session
 // using the context key of the session manager as the key.
 // Also ensure that the values in the already existing context are not affected
-func (s *sessionManager) PopulateRequestContext(r *http.Request, session Session) {
+func (s *sessionManager) PopulateRequestContext(r *http.Request, session Session) *http.Request {
 	ctx := context.WithValue(r.Context(), s.ContextKey, session)
-	r = r.WithContext(ctx)
+	return r.WithContext(ctx)
 }

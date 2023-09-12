@@ -74,7 +74,8 @@ var managerIDs = newNameSpaceManager()
 type sessionManager struct {
 	Store          Storer
 	id             string
-	ContextKey     contextKey    // use an md5 hash of the id coupled with the creation time as the context key
+	cookieName     string
+	contextKey     contextKey    // use an md5 hash of the id coupled with the creation time as the context key
 	infologger     log.Logger    // set as private; public use will come later
 	errLogger      log.Logger    // set as private; public use will come later
 	IdleTimeout    time.Duration //
@@ -111,13 +112,19 @@ func NewSessionManager(namespace string, store Storer) (sessionManager, error) {
 	return sessionManager{
 		Store:          store,
 		id:             id,
-		ContextKey:     key,
+		cookieName:     fmt.Sprintf("%s_session", id),
+		contextKey:     key,
 		infologger:     *log.New(os.Stdout, "SessionInfo:\t", log.LUTC),
 		errLogger:      *log.New(os.Stdout, "SessionErr:\t", log.LUTC),
 		IdleTimeout:    15 * time.Minute,
 		Lifetime:       2 * time.Hour,
 		RenewalTimeout: time.Minute,
 	}, nil
+}
+
+// return the context key of the session manager
+func (s *sessionManager) ContextKey() contextKey {
+	return (s.contextKey)
 }
 
 /* **
@@ -166,12 +173,13 @@ func (s *sessionManager) CreateSession() Session {
 	id := s.newSessionID()
 	return Session{
 		ID:          id,
+		Status:      Valid,
 		Data:        map[string]interface{}{},
 		IdleTime:    time.Now().Add(s.IdleTimeout),
 		LifeTime:    time.Now().Add(s.Lifetime),
 		RenewalTime: time.Now().Add(s.RenewalTimeout),
 		Cookie: http.Cookie{
-			Name:     fmt.Sprintf("session_%s", s.id),
+			Name:     s.cookieName,
 			Value:    id,
 			Secure:   true,
 			SameSite: http.SameSiteLaxMode,

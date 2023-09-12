@@ -18,8 +18,16 @@ import (
 * SESSION RELATED CODE
 *
 ******/
+type SessionStatus int
+
+const (
+	Valid SessionStatus = iota
+	Invalid
+)
+
 type Session struct {
 	ID          string
+	Status      SessionStatus          // true = valid false = invalid
 	Data        map[string]interface{} // does not map to a strict type because of user preferences
 	IdleTime    time.Time
 	LifeTime    time.Time
@@ -194,6 +202,7 @@ func (s *sessionManager) InvalidateSession(session *Session) {
 	if err := s.Store.Delete(session.ID); err != nil {
 		s.errLogger.Println(err.Error())
 	}
+	session.Status = Invalid
 	session.Cookie.Name = ""
 	session.Cookie.Value = ""
 	session.Cookie.Expires = time.Now().Add(-s.IdleTimeout)
@@ -207,6 +216,7 @@ func (s *sessionManager) RenewSession(session *Session) {
 
 	session.ID = newId
 	session.Cookie.Value = newId
+	session.Status = Valid
 
 	s.Store.Update(oldId, session)
 }

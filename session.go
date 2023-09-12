@@ -91,7 +91,7 @@ type SessionManagerConstructorParams struct {
 // create a new session manager using default parameters
 // the namespace given is to ensure things like the context key
 // and session ids are well scoped to session manager instance.
-func New(namespace string) (sessionManager, error) {
+func NewSessionManager(namespace string, store Storer) (sessionManager, error) {
 	id := ""
 	if _, ok := managerIDs.getInstance()[namespace]; ok {
 		return sessionManager{}, errors.New("err: session namespace already exists")
@@ -105,7 +105,7 @@ func New(namespace string) (sessionManager, error) {
 	key := contextKey(hex.EncodeToString(binaryCtx[:]))
 
 	return sessionManager{
-		Store:          &Store{},
+		Store:          store,
 		id:             id,
 		ContextKey:     key,
 		infologger:     *log.New(os.Stdout, "SessionInfo:\t", log.LUTC),

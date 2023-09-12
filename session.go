@@ -64,7 +64,7 @@ func newNameSpaceManager() namespaceManager {
 var managerIDs = newNameSpaceManager()
 
 type sessionManager struct {
-	Store          *Store
+	Store          Storer
 	id             string
 	ContextKey     contextKey    // use an md5 hash of the id coupled with the creation time as the context key
 	infologger     log.Logger    // set as private; public use will come later
@@ -75,7 +75,7 @@ type sessionManager struct {
 }
 
 type SessionManagerConstructorParams struct {
-	Store          *Store
+	Store          Storer
 	Infologger     log.Logger    // set as private; public use will come later
 	ErrLogger      log.Logger    // set as private; public use will come later
 	IdleTimeout    time.Duration //

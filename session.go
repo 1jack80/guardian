@@ -71,7 +71,7 @@ func newNameSpaceManager() namespaceManager {
 
 var managerIDs = newNameSpaceManager()
 
-type sessionManager struct {
+type SessionManager struct {
 	Store          Storer
 	id             string
 	cookieName     string
@@ -86,10 +86,10 @@ type sessionManager struct {
 // create a new session manager using default parameters
 // the namespace given is to ensure things like the context key
 // and session ids are well scoped to session manager instance.
-func NewSessionManager(namespace string, store Storer) (sessionManager, error) {
+func NewSessionManager(namespace string, store Storer) (SessionManager, error) {
 	id := ""
 	if _, ok := managerIDs.getInstance()[namespace]; ok {
-		return sessionManager{}, errors.New("err: session namespace already exists")
+		return SessionManager{}, errors.New("err: session namespace already exists")
 	} else {
 		id = namespace
 		managerIDs.getInstance()[namespace] = struct{}{}
@@ -99,7 +99,7 @@ func NewSessionManager(namespace string, store Storer) (sessionManager, error) {
 	binaryCtx := md5.Sum([]byte(hashValue))
 	key := contextKey(hex.EncodeToString(binaryCtx[:]))
 
-	return sessionManager{
+	return SessionManager{
 		Store:          store,
 		id:             id,
 		cookieName:     fmt.Sprintf("%s_session", id),
@@ -113,7 +113,7 @@ func NewSessionManager(namespace string, store Storer) (sessionManager, error) {
 }
 
 // return the context key of the session manager
-func (s *sessionManager) ContextKey() contextKey {
+func (s *SessionManager) ContextKey() contextKey {
 	return (s.contextKey)
 }
 
@@ -151,7 +151,7 @@ func (s *sessionManager) ContextKey() contextKey {
 
 // generate a new session id using the session managers ID and the
 // timestamp at which the function was called
-func (s *sessionManager) newSessionID() string {
+func (s *SessionManager) newSessionID() string {
 	hashValue := fmt.Sprintf("%s+%d", string(s.id), time.Now().UnixNano())
 	binaryCtx := md5.Sum([]byte(hashValue))
 	return (hex.EncodeToString(binaryCtx[:]))
@@ -159,7 +159,7 @@ func (s *sessionManager) newSessionID() string {
 
 // create a new session in which data can be stored,
 // the session created is automatically saved in the sessionManager store
-func (s *sessionManager) CreateSession() Session {
+func (s *SessionManager) CreateSession() Session {
 	id := s.newSessionID()
 	return Session{
 		ID:          id,
@@ -183,7 +183,7 @@ func (s *sessionManager) CreateSession() Session {
 // the sessionID is renewed whenever the renewal time is up and the idleTime or lifetime have not elapsed yet
 // for every request, the idletime if not elapsed yet is reset; The idle time however is reset only if it has elapsed
 // the after the idletime and lifetimes have elapsed, the session is invalidated and the session cookie is removed.
-func (s *sessionManager) WatchTimeouts(session *Session) {
+func (s *SessionManager) WatchTimeouts(session *Session) {
 	if time.Now().After(session.IdleTime) || time.Now().After(session.LifeTime) {
 		s.InvalidateSession(session)
 		return
@@ -196,7 +196,7 @@ func (s *sessionManager) WatchTimeouts(session *Session) {
 
 // delete session from store and set cookie to a time value in the past
 // set session cookie to a time in the past
-func (s *sessionManager) InvalidateSession(session *Session) {
+func (s *SessionManager) InvalidateSession(session *Session) {
 	if err := s.Store.Delete(session.ID); err != nil {
 		s.errLogger.Println(err.Error())
 	}
@@ -208,7 +208,7 @@ func (s *sessionManager) InvalidateSession(session *Session) {
 
 // set a new session id for both the session and the session cookie value
 // and ensure that the store is also updated with the changes
-func (s *sessionManager) RenewSession(session *Session) {
+func (s *SessionManager) RenewSession(session *Session) {
 	newId := s.newSessionID()
 	oldId := session.ID
 
@@ -222,12 +222,12 @@ func (s *sessionManager) RenewSession(session *Session) {
 // given a request and a session, ensure that the request context contains the session
 // using the context key of the session manager as the key.
 // Also ensure that the values in the already existing context are not affected
-func (s *sessionManager) PopulateRequestContext(r *http.Request, session Session) *http.Request {
+func (s *SessionManager) PopulateRequestContext(r *http.Request, session Session) *http.Request {
 	ctx := context.WithValue(r.Context(), s.contextKey, session)
 	return r.WithContext(ctx)
 }
 
-func (s *sessionManager) SessionMiddleware(next http.HandlerFunc) http.HandlerFunc {
+func (s *SessionManager) SessionMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		/*
 			what we do in the session middleware:

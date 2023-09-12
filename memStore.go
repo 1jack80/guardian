@@ -40,9 +40,13 @@ func (s *InMemoryStore) Delete(sessionID string) error {
 
 // Update updates session data in the in-memory store.
 func (s *InMemoryStore) Update(sessionID string, newSession *Session) error {
-	s.lock.Lock()
-	defer s.lock.Unlock()
 
-	s.data[sessionID] = newSession
-	return nil
+	if sessionID == newSession.ID {
+		s.data[sessionID] = newSession
+		return nil
+	} else {
+		delete(s.data, sessionID)
+		s.data[newSession.ID] = newSession
+		return nil
+	}
 }

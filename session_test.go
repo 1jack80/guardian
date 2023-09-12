@@ -60,8 +60,14 @@ func (s *MockStorage) Update(sessionID string, newSession *guardian.Session) err
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	s.data[sessionID] = newSession
-	return nil
+	if sessionID == newSession.ID {
+		s.data[sessionID] = newSession
+		return nil
+	} else {
+		delete(s.data, sessionID)
+		s.data[newSession.ID] = newSession
+		return nil
+	}
 }
 
 var manager, manager_err = guardian.NewSessionManager("test_manager", NewMockStorage())
@@ -328,19 +334,60 @@ func TestSessionManager_PopulateRequestContext(t *testing.T) {
 	}
 }
 
-/*
 // TestSessionManager_InvalidateSession tests the invalidation of a session and verifies that the session data is removed from the store and the session cookie is expired.
 func TestSessionManager_InvalidateSession(t *testing.T) {
-	// Test logic here
+
+	if manager_err != nil {
+		t.Fatalf("unable to create session manager: err -- %s", manager_err.Error())
+	}
+
+	session := manager.CreateSession()
+	sessionID := session.ID
+	cookieExpiryTime := session.Cookie.Expires
+
+	manager.InvalidateSession(&session)
+
+	if session.Cookie.Value != "" {
+		t.Fatalf("session cookie value should be empty \n expected: \n got: \t %v", session.Cookie.Value)
+	}
+	if time.Now().Before(session.Cookie.Expires) {
+		t.Fatalf("session cookie should have expired \n expected: %v \n got: \t %v", cookieExpiryTime, session.Cookie.Expires)
+	}
+	if _, err := manager.Store.Get(sessionID); err == nil {
+		t.Fatalf("session was not deleted from the store")
+	}
 }
 
 // Tests for Objectives Not Yet Implemented:
 
 // TestSessionManager_RenewSession tests the session renewal functionality once implemented.
 func TestSessionManager_RenewSession(t *testing.T) {
-	// Test logic here
+
+	if manager_err != nil {
+		t.Fatalf("unable to create session manager: err -- %s", manager_err.Error())
+	}
+
+	session := manager.CreateSession()
+	sessionID := session.ID
+	cookie := session.Cookie
+
+	manager.RenewSession(&session)
+
+	if sessionID == session.ID {
+		t.Fatal("session id was not renewed")
+	}
+	if cookie.Value == session.Cookie.Value {
+		t.Fatal("cookie value was not renewed")
+	}
+	if _, err := manager.Store.Get(sessionID); err == nil {
+		t.Fatal("old session id not updated in the store")
+	}
+	if _, err := manager.Store.Get(session.ID); err != nil {
+		t.Fatal("new sesson id was not added to the store")
+	}
 }
 
+/*
 // TestSessionManager_Customization tests setting custom values for idle timeout, lifetime, and renewal timeout.
 func TestSessionManager_Customization(t *testing.T) {
 	// Test logic here
@@ -358,11 +405,6 @@ func TestSessionManager_ErrorHandling(t *testing.T) {
 
 // TestSessionManager_Logging tests if log messages are generated correctly.
 func TestSessionManager_Logging(t *testing.T) {
-	// Test logic here
-}
-
-// TestSessionManager_Documentation is not a code test but ensures that your documentation (e.g., Go doc comments) is accurate and comprehensive.
-func TestSessionManager_Documentation(t *testing.T) {
 	// Test logic here
 }
 

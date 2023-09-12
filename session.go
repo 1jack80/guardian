@@ -203,7 +203,7 @@ func (s *sessionManager) InvalidateSession(session *Session) {
 	session.Cookie.Expires = time.Now().Add(-s.IdleTimeout)
 }
 
-// set a new session id for both the session and the session cookie
+// set a new session id for both the session and the session cookie value
 // and ensure that the store is also updated with the changes
 func (s *sessionManager) RenewSession(session *Session) {
 	newId := s.newSessionID()

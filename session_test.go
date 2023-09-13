@@ -26,15 +26,15 @@ func NewMockStorage() *MockStorage {
 }
 
 // get retrieves session data from the mock storage.
-func (s *MockStorage) Get(sessionID string) (guardian.Session, error) {
+func (s *MockStorage) Get(sessionID string) (*guardian.Session, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
 	session, ok := s.data[sessionID]
 	if !ok {
-		return guardian.Session{}, errors.New("Session not found")
+		return nil, errors.New("Session not found")
 	}
-	return session, nil
+	return &session, nil
 }
 
 // save saves a session into the mock storage.

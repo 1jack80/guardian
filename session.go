@@ -244,24 +244,24 @@ func (s *SessionManager) SessionMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Add("Vary", "Cookie")
 
-		var session Session
-
 		cookie, err := r.Cookie(s.cookieName)
-		if err != nil {
+		if err != nil { // request doesnt have a cookie
 			newSession := s.CreateSession()
-			session = newSession
 			http.SetCookie(w, &newSession.Cookie)
-			s.Store.Save(session)
-		} else {
-			session, err = s.Store.Get(cookie.Value)
+			s.Store.Save(newSession)
+			r = s.PopulateRequestContext(r, newSession)
+		} else { // request has a cookie
+			session, err := s.Store.Get(cookie.Value)
 			if err != nil {
+				// corresponding session forrequest cookie cant be found
 				s.ErrLogger.Printf("Session manager %s error: %s", s.id, err.Error())
+				http.SetCookie(w, &http.Cookie{Value: "", Name: s.cookieName, Expires: time.Now().Add(-time.Hour)})
+				http.Error(w, http.StatusText(http.StatusFailedDependency), http.StatusFailedDependency)
+				return
 			}
-			s.WatchTimeouts(session)
+			s.WatchTimeouts(*session)
+			r = s.PopulateRequestContext(r, *session)
 		}
-		s.PopulateRequestContext(r, session)
-
 		next.ServeHTTP(w, r)
-
 	})
 }

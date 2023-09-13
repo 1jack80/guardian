@@ -6,13 +6,13 @@ import (
 
 // InMemoryStore is an in-memory implementation of the Storer interface.
 type InMemoryStore struct {
-	data map[string]*Session
+	data map[string]Session
 }
 
 // NewInMemoryStore creates a new instance of InMemoryStore.
 func NewInMemoryStore() *InMemoryStore {
 	return &InMemoryStore{
-		data: make(map[string]*Session),
+		data: make(map[string]Session),
 	}
 }
 
@@ -22,11 +22,11 @@ func (s *InMemoryStore) Get(sessionID string) (*Session, error) {
 	if !ok {
 		return nil, errors.New("Session not found")
 	}
-	return session, nil
+	return &session, nil
 }
 
 // save saves a session into the in-memory store.
-func (s *InMemoryStore) Save(session *Session) error {
+func (s *InMemoryStore) Save(session Session) error {
 	s.data[session.ID] = session
 	return nil
 }
@@ -39,7 +39,7 @@ func (s *InMemoryStore) Delete(sessionID string) error {
 }
 
 // Update updates session data in the in-memory store.
-func (s *InMemoryStore) Update(sessionID string, newSession *Session) error {
+func (s *InMemoryStore) Update(sessionID string, newSession Session) error {
 
 	if sessionID == newSession.ID {
 		s.data[sessionID] = newSession

@@ -8,7 +8,7 @@ package guardian
 type Storer interface {
 	// retrieve the sesison data from the underlying container
 	// and decode it before returning it to the calling function
-	Get(sessionID string) (*Session, error)
+	Get(sessionID string) (Session, error)
 
 	// save an encoded form of the given session data into
 	// the underlying container

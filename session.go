@@ -2,266 +2,192 @@ package guardian
 
 import (
 	"context"
-	"crypto/md5"
-	"encoding/hex"
 	"errors"
-	"fmt"
-	"log"
 	"net/http"
-	"os"
-	"sync"
 	"time"
 )
 
-/******
-*
-* SESSION RELATED CODE
-*
-******/
-type SessionStatus int
-
 const (
-	Valid SessionStatus = iota
-	Invalid
+	INVALID int = iota
+	VALID
 )
 
 type Session struct {
-	ID          string
-	Status      SessionStatus          // true = valid false = invalid
-	Data        map[string]interface{} // does not map to a strict type because of user preferences
-	IdleTime    time.Time
-	LifeTime    time.Time
-	RenewalTime time.Time
-	Cookie      http.Cookie
+	ID         string
+	Data       map[string]interface{}
+	Status     int
+	IdleTime   time.Time
+	ExpiryTime time.Time
 }
 
-/******
-*
-* SESSION MANAGER RELATED CODE
-*
-******/
 type contextKey string
-type namespaceManagerInstance map[string]struct{}
-type namespaceManager struct {
-	_instance namespaceManagerInstance
-	_lock     sync.Mutex
+
+type Manager struct {
+	name          string
+	store         Storer
+	contextKey    contextKey
+	cookieName    string
+	idleTimeout   time.Duration
+	expiryTimeout time.Duration
 }
 
-func (m *namespaceManager) getInstance() namespaceManagerInstance {
-	if m._instance == nil {
-		m._lock.Lock()
-		defer m._lock.Unlock()
-		if m._instance == nil {
-			m._instance = namespaceManagerInstance{}
-			return m._instance
-		} else {
-			return m._instance
-		}
+func NewManager(name string, store Storer) (Manager, error) {
+	err := ValidateNamespace(name)
+	if err != nil {
+		return Manager{}, err
+	}
+	return Manager{
+		name:          name,
+		store:         store,
+		cookieName:    name + "_session",
+		contextKey:    newContextKey(name),
+		idleTimeout:   time.Minute * 3,
+		expiryTimeout: time.Hour * 2,
+	}, err
+}
+
+// create a new session and add it to the store.
+func (man *Manager) CreateSession() Session {
+	newSession := Session{
+		ID:         man.newSessionID(),
+		Data:       make(map[string]interface{}),
+		Status:     VALID,
+		IdleTime:   time.Now().Add(man.idleTimeout),
+		ExpiryTime: time.Now().Add(man.expiryTimeout),
+	}
+	man.store.Save(newSession)
+	return newSession
+}
+
+func (man *Manager) SaveSession(sessonInstance Session) error {
+	return man.store.Save(sessonInstance)
+}
+
+func (man *Manager) GetSession(sessionID string) (Session, error) {
+	return man.store.Get(sessionID)
+}
+
+func (man *Manager) UpdateSession(sessionID string, sessionInstance Session) error {
+	return man.store.Update(sessionID, sessionInstance)
+}
+
+// change the session id of the session but maintain the data therein
+func (man *Manager) RenewSession(sessionID string) (Session, error) {
+	newID := man.newSessionID()
+	oldSession, err := man.store.Get(sessionID)
+	if err != nil {
+		return Session{}, err
+	}
+	oldSession.ID = newID
+
+	err = man.store.Save(oldSession)
+	if err != nil {
+		return Session{}, err
 	}
 
-	return m._instance
-}
-
-func newNameSpaceManager() namespaceManager {
-	return namespaceManager{
-		_instance: namespaceManagerInstance{},
-		_lock:     sync.Mutex{},
+	err = man.store.Delete(sessionID)
+	if err != nil {
+		return oldSession, errors.New("unable to delete old session from store; although new session ID was saved successfully")
 	}
+	return oldSession, nil
 }
 
-var managerIDs = newNameSpaceManager()
-
-type SessionManager struct {
-	Store          Storer
-	id             string
-	cookieName     string
-	contextKey     contextKey    // use an md5 hash of the id coupled with the creation time as the context key
-	Infologger     log.Logger    // set as private; public use will come later
-	ErrLogger      log.Logger    // set as private; public use will come later
-	IdleTimeout    time.Duration //
-	Lifetime       time.Duration
-	RenewalTimeout time.Duration
-}
-
-// create a new session manager using default parameters
-// the namespace given is to ensure things like the context key
-// and session ids are well scoped to session manager instance.
-func NewSessionManager(namespace string, store Storer) (SessionManager, error) {
-	id := ""
-	if _, ok := managerIDs.getInstance()[namespace]; ok {
-		return SessionManager{}, errors.New("err: session namespace already exists")
-	} else {
-		id = namespace
-		managerIDs.getInstance()[namespace] = struct{}{}
+// mark the session as invalid but keep it around until the session expiry time elapses
+// by this time the associated cookie should have also expired then the session can be deleted
+func (man *Manager) InvalidateSession(sessionID string) error {
+	session, err := man.store.Get(sessionID)
+	if err != nil {
+		return err
 	}
+	session.Status = INVALID
+	session.IdleTime = time.Now().Add(-man.idleTimeout)
+	return man.store.Update(sessionID, session)
+}
 
-	hashValue := fmt.Sprintf("%s+%d", id, time.Now().UnixNano())
-	binaryCtx := md5.Sum([]byte(hashValue))
-	key := contextKey(hex.EncodeToString(binaryCtx[:]))
+// a wrapper over the delete method in the store
+func (man *Manager) DeleteSession(sessionID string) error {
+	return man.store.Delete(sessionID)
+}
 
-	return SessionManager{
-		Store:          store,
-		id:             id,
-		cookieName:     fmt.Sprintf("%s_session", id),
-		contextKey:     key,
-		Infologger:     *log.New(os.Stdout, "SessionInfo:\t", log.Lshortfile),
-		ErrLogger:      *log.New(os.Stdout, "SessionErr:\t", log.Lshortfile),
-		IdleTimeout:    15 * time.Minute,
-		Lifetime:       2 * time.Hour,
-		RenewalTimeout: time.Minute,
+// creates and returns a new cookie using a session
+func (man *Manager) CeateCookie(sessionID string) (http.Cookie, error) {
+	session, err := man.store.Get(sessionID)
+	if err != nil {
+		return http.Cookie{}, err
+	}
+	return http.Cookie{
+		Name:    man.cookieName,
+		Value:   sessionID,
+		Expires: session.ExpiryTime,
+		// Secure:   true, // https traffic only
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
 	}, nil
 }
 
-// return the context key of the session manager
-func (s *SessionManager) ContextKey() contextKey {
-	return (s.contextKey)
-}
-
-/* **
-// TODO: implement the following funcs:
-	createSession() Ssession
-	watchTimeouts()
-	populateContext(ctx context.Context)
-		NOTE: The context population can be done in this manner:
-		-	if there already exists a context key, in the given ctx
-			then add the decoded data to the context
-		- 	else if there is no context key available in the given ctx
-			create a new context.
-		-	This ensures that in the case where there are different context managers
-			used in the same application, data from each context manager will be made
-			available while avoiding the issues of duplication and confusion of which data
-			values are more important as any overriden data by the second session manager
-			will be considered more important by default.
-		- 	In view of this, it should be noted that for multiple session managers,
-			the order in which session middlewares are applied defines the order of priority
-			and security levels.
-		NOTE: Method 2: context keys as seen by alex edwards
-		-	in the case where there are more than one session managers in use
-			for the same applicatin, the use of unique randomly generated context keys
-			to populate the context may be amore ideal.
-		- 	The context keys will be generated using the sessionManager id which is already
-			checked against duplication
-
-	renewSession(session *Session)
-	invalidateSession(session *Session)		// set session cookie to a time in the past
-
-	managerMiddleware ~ manage(next http.Handler) http.HandleFunc
-		loggerMiddleware(next http.Handler) http.HandleFunc
-** */
-
-// generate a new session id using the session managers ID and the
-// timestamp at which the function was called
-func (s *SessionManager) newSessionID() string {
-	hashValue := fmt.Sprintf("%s+%d", string(s.id), time.Now().UnixNano())
-	binaryCtx := md5.Sum([]byte(hashValue))
-	return (hex.EncodeToString(binaryCtx[:]))
-}
-
-// create a new session in which data can be stored,
-// the session created is automatically saved in the sessionManager store
-func (s *SessionManager) CreateSession() Session {
-	id := s.newSessionID()
-	return Session{
-		ID:          id,
-		Status:      Valid,
-		Data:        map[string]interface{}{},
-		IdleTime:    time.Now().Add(s.IdleTimeout),
-		LifeTime:    time.Now().Add(s.Lifetime),
-		RenewalTime: time.Now().Add(s.RenewalTimeout),
-		Cookie: http.Cookie{
-			Name:     s.cookieName,
-			Value:    id,
-			Secure:   true,
-			SameSite: http.SameSiteLaxMode,
-			HttpOnly: true,
-			Expires:  time.Now().Add(s.Lifetime),
-		},
-	}
-}
-
-// watch timeouts in the order: renewalTime, idleTime and lifeTime;
-// the sessionID is renewed whenever the renewal time is up and the idleTime or lifetime have not elapsed yet
-// for every request, the idletime if not elapsed yet is reset; The idle time however is reset only if it has elapsed
-// the after the idletime and lifetimes have elapsed, the session is invalidated and the session cookie is removed.
-func (s *SessionManager) WatchTimeouts(session Session) Session {
-	if time.Now().After(session.IdleTime) || time.Now().After(session.LifeTime) {
-		session = s.InvalidateSession(session)
-		return session
-	} else if time.Now().After(session.RenewalTime) {
-		session = s.RenewSession(session)
-		session.RenewalTime = time.Now().Add(s.RenewalTimeout)
-	}
-	session.IdleTime = time.Now().Add(s.IdleTimeout)
-	return session
-}
-
-// delete session from store and set cookie to a time value in the past
-// set session cookie to a time in the past
-func (s *SessionManager) InvalidateSession(session Session) Session {
-	if err := s.Store.Delete(session.ID); err != nil {
-		s.ErrLogger.Println(err.Error())
-	}
-	session.Status = Invalid
-	session.Cookie.Name = ""
-	session.Cookie.Value = ""
-	session.Cookie.Expires = time.Now().Add(-s.IdleTimeout)
-	return session
-}
-
-// set a new session id for both the session and the session cookie value
-// and ensure that the store is also updated with the changes
-func (s *SessionManager) RenewSession(session Session) Session {
-	newId := s.newSessionID()
-	oldId := session.ID
-
-	session.ID = newId
-	session.Cookie.Value = newId
-	session.Status = Valid
-
-	s.Store.Update(oldId, session)
-	return session
-}
-
-// given a request and a session, ensure that the request context contains the session
-// using the context key of the session manager as the key.
-// Also ensure that the values in the already existing context are not affected
-func (s *SessionManager) PopulateRequestContext(r *http.Request, session Session) *http.Request {
-	ctx := context.WithValue(r.Context(), s.contextKey, session)
+// fill the request context with the given session and returns the updated request
+func (man *Manager) PopulateRequestContext(r *http.Request, session Session) *http.Request {
+	ctx := context.WithValue(r.Context(), man.contextKey, session)
 	return r.WithContext(ctx)
 }
 
-/*
-what we do in the session middleware:
-- check the request context if there is a session cookie under the session manager's cookieName
-- validate the cookie if there exists a corresponding session in the store
-- watch timeouts of the session
-- populate the request context with the session data
-
-// when the response is about to be sent
-- log request context and the response cookie
-*/
-func (s *SessionManager) SessionMiddleware(next http.Handler) http.Handler {
+// populates the contexts of new requests with the sessions to which the request cookie
+// points. The middleware also extends the session idle times after each request
+func (man *Manager) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Add("Vary", "Cookie")
-
-		cookie, err := r.Cookie(s.cookieName)
-		if err != nil { // request doesnt have a cookie
-			newSession := s.CreateSession()
-			http.SetCookie(w, &newSession.Cookie)
-			s.Store.Save(newSession)
-			r = s.PopulateRequestContext(r, newSession)
-		} else { // request has a cookie
-			session, err := s.Store.Get(cookie.Value)
-			if err != nil {
-				// corresponding session forrequest cookie cant be found
-				s.ErrLogger.Printf("Session manager %s error: %s", s.id, err.Error())
-				http.SetCookie(w, &http.Cookie{Value: "", Name: s.cookieName, Expires: time.Now().Add(-time.Hour)})
-				http.Error(w, http.StatusText(http.StatusFailedDependency), http.StatusFailedDependency)
-				return
-			}
-			s.WatchTimeouts(*session)
-			r = s.PopulateRequestContext(r, *session)
+		cookie, err := r.Cookie(man.cookieName)
+		if err != nil {
+			http.Error(w, http.StatusText(http.StatusForbidden), http.StatusForbidden)
+			return
 		}
+
+		sessionID := cookie.Value
+		session, err := man.store.Get(sessionID)
+		if err != nil {
+			http.Error(w, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
+			return
+		}
+
+		// watch timeouts
+		if time.Now().After(session.ExpiryTime) {
+			http.Error(w, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
+			return
+		}
+		if time.Now().After(session.IdleTime) {
+			http.Error(w, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
+			return
+		}
+
+		r = man.PopulateRequestContext(r, session)
+
 		next.ServeHTTP(w, r)
+
+		// session must be refetched from store in case other handlers down the chain
+		// tampered with the current one.
+		session, err = man.store.Get(sessionID)
+		if err != nil {
+			// http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+			// log err
+			return
+		}
+
+		if session.Status == VALID {
+			session.IdleTime = time.Now().Add(man.idleTimeout)
+			man.store.Update(sessionID, session)
+		}
+
+		newCookie, err := man.CeateCookie(sessionID)
+		if err != nil {
+			// http.Error(w, "Unable to respond with proper cookie: "+
+			// http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+			// log err
+			return
+		}
+		http.SetCookie(w, &newCookie)
 	})
+}
+
+// acts as an accessor to get the manager's context key as it must not be changed
+func (man *Manager) ContextKey() contextKey {
+	return man.contextKey
 }

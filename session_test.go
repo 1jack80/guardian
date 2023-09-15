@@ -79,7 +79,8 @@ func TestValidateNamespace(t *testing.T) {
 	}
 }
 
-var manager, manager_err = guardian.NewManager("test_manager", NewMockStorage())
+var store = guardian.NewInMemoryStore()
+var manager, manager_err = guardian.NewManager("test_manager", store)
 
 // TestSessionManager_CreateSession tests the creation of a new session and validates its attributes.
 func TestSessionManager_CreateSession(t *testing.T) {

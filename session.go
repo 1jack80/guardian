@@ -144,6 +144,10 @@ func (man *Manager) Middleware(next http.Handler) http.Handler {
 		sessionID := cookie.Value
 		session, err := man.store.Get(sessionID)
 		if err != nil {
+			cookieCopy := cookie
+			cookieCopy.Value = ""
+			cookie.Expires = time.Now().Add(-man.expiryTimeout)
+			http.SetCookie(w, cookieCopy)
 			http.Error(w, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
 			return
 		}

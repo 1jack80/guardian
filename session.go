@@ -110,7 +110,7 @@ func (man *Manager) DeleteSession(sessionID string) error {
 }
 
 // creates and returns a new cookie using a session
-func (man *Manager) CeateCookie(sessionID string) (http.Cookie, error) {
+func (man *Manager) CreateCookie(sessionID string) (http.Cookie, error) {
 	session, err := man.store.Get(sessionID)
 	if err != nil {
 		return http.Cookie{}, err
@@ -176,7 +176,7 @@ func (man *Manager) Middleware(next http.Handler) http.Handler {
 			man.store.Update(sessionID, session)
 		}
 
-		newCookie, err := man.CeateCookie(sessionID)
+		newCookie, err := man.CreateCookie(sessionID)
 		if err != nil {
 			// http.Error(w, "Unable to respond with proper cookie: "+
 			// http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)

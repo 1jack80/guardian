@@ -17,12 +17,12 @@ func NewInMemoryStore() *InMemoryStore {
 }
 
 // get retrieves session data from the in-memory store.
-func (s *InMemoryStore) Get(sessionID string) (*Session, error) {
+func (s *InMemoryStore) Get(sessionID string) (Session, error) {
 	session, ok := s.data[sessionID]
 	if !ok {
-		return nil, errors.New("Session not found")
+		return Session{}, errors.New("Session not found")
 	}
-	return &session, nil
+	return session, nil
 }
 
 // save saves a session into the in-memory store.

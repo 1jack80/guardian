@@ -32,7 +32,7 @@ package main
 
 import (
     "net/http"
-    "github.com/1jack80/guardian"
+    "github.com/domain80/guardian"
 )
 
 func main() {
@@ -69,15 +69,15 @@ func main() {
 
 ## Documentation
 
-For detailed documentation and additional features, refer to the [Guardian documentation](https://github.com/1jack80/guardian).
+For detailed documentation and additional features, refer to the [Guardian documentation](https://github.com/domain80/guardian).
 
 ## License
 
-Guardian is licensed under the MIT License. See the [LICENSE](https://github.com/1jack80/guardian/blob/main/LICENSE) file for details.
+Guardian is licensed under the MIT License. See the [LICENSE](https://github.com/domain80/guardian/blob/main/LICENSE) file for details.
 
 ## Contributing
 
-We welcome contributions! Feel free to open issues or submit pull requests on the [GitHub repository](https://github.com/1jack80/guardian).
+We welcome contributions! Feel free to open issues or submit pull requests on the [GitHub repository](https://github.com/domain80/guardian).
 
 ## Acknowledgments
 

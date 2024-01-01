@@ -20,7 +20,7 @@ It allows you to create and manage user sessions in your Go web applications. Wi
 Guardian can be installed using Go modules:
 
 ```sh
-$ go get github.com/1jack80/guardian
+$ go get github.com/domain80/guardian
 ```
 
 ## Basic Usage
